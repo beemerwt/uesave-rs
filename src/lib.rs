@@ -139,7 +139,7 @@ fn write_string_always_trailing<W: Write>(writer: &mut Context<W>, string: &str)
 type Properties = indexmap::IndexMap<String, Property>;
 fn read_properties_until_none<R: Read + Seek>(reader: &mut Context<R>, progress: Option<&Function>) -> TResult<Properties> {
     let mut properties = Properties::new();
-    while let Some((name, prop)) = read_property(reader)? {
+    while let Some((name, prop)) = read_property(reader, progress)? {
         if progress.is_some() {
             let _err = progress.unwrap().call1(&JsValue::null(), &JsValue::from(reader.stream_position()?));
             if let Err(_) = _err {
@@ -193,8 +193,16 @@ fn write_properties_none_terminated<W: Write>(
     Ok(())
 }
 
-fn read_property<R: Read + Seek>(reader: &mut Context<R>) -> TResult<Option<(String, Property)>> {
+fn read_property<R: Read + Seek>(reader: &mut Context<R>, progress: Option<&Function>) -> TResult<Option<(String, Property)>> {
     let name = read_string(reader)?;
+
+    if progress.is_some() {
+        let _err = progress.unwrap().call1(&JsValue::null(), &JsValue::from(reader.stream_position()?));
+        if let Err(_) = _err {
+            panic!("Unable to invoke progress callback");
+        }
+    }
+
     if name == "None" {
         Ok(None)
     } else {
