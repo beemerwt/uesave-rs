@@ -627,9 +627,10 @@ impl MapEntry {
         key_struct_type: Option<&StructType>,
         value_type: &PropertyType,
         value_struct_type: Option<&StructType>,
+        progress: Option<&Function>
     ) -> TResult<MapEntry> {
-        let key = PropertyValue::read(reader, key_type, key_struct_type)?;
-        let value = PropertyValue::read(reader, value_type, value_struct_type)?;
+        let key = PropertyValue::read(reader, key_type, key_struct_type, progress)?;
+        let value = PropertyValue::read(reader, value_type, value_struct_type, progress)?;
         Ok(Self { key, value })
     }
     fn write<W: Write>(&self, writer: &mut Context<W>) -> TResult<()> {
@@ -1421,6 +1422,7 @@ impl PropertyValue {
         reader: &mut Context<R>,
         t: &PropertyType,
         st: Option<&StructType>,
+        progress: Option<&Function>
     ) -> TResult<PropertyValue> {
         Ok(match t {
             PropertyType::IntProperty => PropertyValue::Int(reader.read_i32::<LE>()?),
@@ -1441,7 +1443,7 @@ impl PropertyValue {
             PropertyType::ByteProperty => PropertyValue::Byte(Byte::Label(read_string(reader)?)),
             PropertyType::EnumProperty => PropertyValue::Enum(read_string(reader)?),
             PropertyType::StructProperty => {
-                PropertyValue::Struct(StructValue::read(reader, st.as_ref().unwrap())?)
+                PropertyValue::Struct(StructValue::read(reader, st.as_ref().unwrap(), progress)?)
             }
             _ => return Err(Error::Other(format!("unimplemented property {t:?}"))),
         })
@@ -1479,7 +1481,7 @@ impl PropertyValue {
     }
 }
 impl StructValue {
-    fn read<R: Read + Seek>(reader: &mut Context<R>, t: &StructType) -> TResult<StructValue> {
+    fn read<R: Read + Seek>(reader: &mut Context<R>, t: &StructType, progress: Option<&Function>) -> TResult<StructValue> {
         Ok(match t {
             StructType::Guid => StructValue::Guid(uuid::Uuid::read(reader)?),
             StructType::DateTime => StructValue::DateTime(reader.read_u64::<LE>()?),
@@ -1499,7 +1501,7 @@ impl StructValue {
                 StructValue::GameplayTagContainer(GameplayTagContainer::read(reader)?)
             }
 
-            StructType::Struct(_) => StructValue::Struct(read_properties_until_none(reader, None)?),
+            StructType::Struct(_) => StructValue::Struct(read_properties_until_none(reader, progress)?),
         })
     }
     fn write<W: Write>(&self, writer: &mut Context<W>) -> TResult<()> {
@@ -1558,7 +1560,7 @@ impl ValueVec {
                 ValueVec::Bool(read_array(count, reader, |r| Ok(r.read_u8()? > 0))?)
             }
             PropertyType::ByteProperty => {
-                if size == count.into() {
+                if size == (count as u64) {
                     ValueVec::Byte(ByteArray::Byte(read_array(count, reader, |r| {
                         Ok(r.read_u8()?)
                     })?))
@@ -1707,6 +1709,7 @@ impl ValueArray {
         reader: &mut Context<R>,
         t: &PropertyType,
         size: u64,
+        progress: Option<&Function>
     ) -> TResult<ValueArray> {
         let count = reader.read_u32::<LE>()?;
         Ok(match t {
@@ -1719,7 +1722,7 @@ impl ValueArray {
                 reader.read_u8()?;
                 let mut value = vec![];
                 for _ in 0..count {
-                    value.push(StructValue::read(reader, &struct_type)?);
+                    value.push(StructValue::read(reader, &struct_type, progress)?);
                 }
                 ValueArray::Struct {
                     _type,
@@ -1767,11 +1770,12 @@ impl ValueSet {
         t: &PropertyType,
         st: Option<&StructType>,
         size: u64,
+        progress: Option<&Function>
     ) -> TResult<ValueSet> {
         let count = reader.read_u32::<LE>()?;
         Ok(match t {
             PropertyType::StructProperty => ValueSet::Struct(read_array(count, reader, |r| {
-                StructValue::read(r, st.unwrap())
+                StructValue::read(r, st.unwrap(), progress)
             })?),
             _ => ValueSet::Base(ValueVec::read(reader, t, size, count)?),
         })
@@ -2109,7 +2113,7 @@ impl Property {
                     PropertyType::StructProperty => Some(reader.get_type_or(&StructType::Guid)?),
                     _ => None,
                 };
-                let value = ValueSet::read(reader, &set_type, struct_type, size - 8)?;
+                let value = ValueSet::read(reader, &set_type, struct_type, size - 8, progress)?;
                 Ok(Property::Set {
                     id,
                     set_type,
@@ -2144,6 +2148,7 @@ impl Property {
                         key_struct_type,
                         &value_type,
                         value_struct_type,
+                        progress
                     )?)
                 }
 
@@ -2158,7 +2163,7 @@ impl Property {
                 let struct_type = StructType::read(reader)?;
                 let struct_id = uuid::Uuid::read(reader)?;
                 let id = read_optional_uuid(reader)?;
-                let value = StructValue::read(reader, &struct_type)?;
+                let value = StructValue::read(reader, &struct_type, progress)?;
                 Ok(Property::Struct {
                     struct_type,
                     struct_id,
@@ -2169,7 +2174,7 @@ impl Property {
             PropertyType::ArrayProperty => {
                 let array_type = PropertyType::read(reader, None)?;
                 let id = read_optional_uuid(reader)?;
-                let value = ValueArray::read(reader, &array_type, size - 4)?;
+                let value = ValueArray::read(reader, &array_type, size - 4, progress)?;
 
                 Ok(Property::Array {
                     array_type,
