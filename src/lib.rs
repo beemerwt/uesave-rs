@@ -207,9 +207,9 @@ fn read_property<R: Read + Seek>(reader: &mut Context<R>, progress: Option<&Func
         Ok(None)
     } else {
         reader.scope(&name, |reader| {
-            let t = PropertyType::read(reader)?;
+            let t = PropertyType::read(reader, progress)?;
             let size = reader.read_u64::<LE>()?;
-            let value = Property::read(reader, t, size)?;
+            let value = Property::read(reader, t, size, progress)?;
             Ok(Some((name.clone(), value)))
         })
     }
@@ -464,8 +464,16 @@ impl PropertyType {
             PropertyType::StructProperty => "StructProperty",
         }
     }
-    fn read<R: Read + Seek>(reader: &mut Context<R>) -> TResult<Self> {
+    fn read<R: Read + Seek>(reader: &mut Context<R>, progress: Option<&Function>) -> TResult<Self> {
         let t = read_string(reader)?;
+
+        if progress.is_some() {
+            let _err = progress.unwrap().call1(&JsValue::null(), &JsValue::from(reader.stream_position()?));
+            if let Err(_) = _err {
+                panic!("Unable to invoke progress callback");
+            }
+        }
+
         match t.as_str() {
             "Int8Property" => Ok(PropertyType::Int8Property),
             "Int16Property" => Ok(PropertyType::Int16Property),
@@ -1982,6 +1990,7 @@ impl Property {
         reader: &mut Context<R>,
         t: PropertyType,
         size: u64,
+        progress: Option<&Function>
     ) -> TResult<Property> {
         match t {
             PropertyType::Int8Property => Ok(Property::Int8 {
@@ -2093,7 +2102,7 @@ impl Property {
                 })
             }
             PropertyType::SetProperty => {
-                let set_type = PropertyType::read(reader)?;
+                let set_type = PropertyType::read(reader, progress)?;
                 let id = read_optional_uuid(reader)?;
                 reader.read_u32::<LE>()?;
                 let struct_type = match set_type {
@@ -2108,8 +2117,8 @@ impl Property {
                 })
             }
             PropertyType::MapProperty => {
-                let key_type = PropertyType::read(reader)?;
-                let value_type = PropertyType::read(reader)?;
+                let key_type = PropertyType::read(reader, None)?;
+                let value_type = PropertyType::read(reader, None)?;
                 let id = read_optional_uuid(reader)?;
                 reader.read_u32::<LE>()?;
                 let count = reader.read_u32::<LE>()?;
@@ -2158,7 +2167,7 @@ impl Property {
                 })
             }
             PropertyType::ArrayProperty => {
-                let array_type = PropertyType::read(reader)?;
+                let array_type = PropertyType::read(reader, None)?;
                 let id = read_optional_uuid(reader)?;
                 let value = ValueArray::read(reader, &array_type, size - 4)?;
 
