@@ -134,9 +134,12 @@ fn write_string_always_trailing<W: Write>(writer: &mut Context<W>, string: &str)
 }
 
 type Properties = indexmap::IndexMap<String, Property>;
-fn read_properties_until_none<R: Read + Seek>(reader: &mut Context<R>) -> TResult<Properties> {
+fn read_properties_until_none<R: Read + Seek>(reader: &mut Context<R>, progress: Option<fn(u32)>) -> TResult<Properties> {
     let mut properties = Properties::new();
     while let Some((name, prop)) = read_property(reader)? {
+        if progress.is_some() {
+            progress.unwrap()(reader.stream_position()? as u32);
+        }
 
         let mut is_parsed = false;
         #[cfg(feature = "parse_raw_data")]
@@ -153,7 +156,7 @@ fn read_properties_until_none<R: Read + Seek>(reader: &mut Context<R>) -> TResul
                                 types: reader.types,
                                 scope: reader.scope,
                             };
-                            if let Ok(inner_props) = read_properties_until_none(&mut temp_reader) {
+                            if let Ok(inner_props) = read_properties_until_none(&mut temp_reader, progress) {
                                 temp_reader.read_u32::<LE>()?;
                                 let struct_id = uuid::Uuid::read(&mut temp_reader)?;
                                 let replacement = Property::RawData { id: *id, properties: inner_props, struct_id };
@@ -1474,7 +1477,7 @@ impl StructValue {
                 StructValue::GameplayTagContainer(GameplayTagContainer::read(reader)?)
             }
 
-            StructType::Struct(_) => StructValue::Struct(read_properties_until_none(reader)?),
+            StructType::Struct(_) => StructValue::Struct(read_properties_until_none(reader, None)?),
         })
     }
     fn write<W: Write>(&self, writer: &mut Context<W>) -> TResult<()> {
@@ -2526,10 +2529,10 @@ pub struct Root {
     pub properties: Properties,
 }
 impl Root {
-    fn read<R: Read + Seek>(reader: &mut Context<R>) -> TResult<Self> {
+    fn read<R: Read + Seek>(reader: &mut Context<R>, progress: Option<fn(u32)>) -> TResult<Self> {
         Ok(Self {
             save_game_type: read_string(reader)?,
-            properties: read_properties_until_none(reader)?,
+            properties: read_properties_until_none(reader, progress)?,
         })
     }
     fn write<W: Write>(&self, writer: &mut Context<W>) -> TResult<()> {
@@ -2548,16 +2551,20 @@ pub struct Save {
 impl Save {
     /// Reads save from the given reader
     pub fn read<R: Read>(reader: &mut R) -> Result<Self, ParseError> {
-        Self::read_with_types(reader, &Types::new())
+        Self::read_with_types(reader, &Types::new(), None)
     }
     /// Reads save from the given reader using the provided [`Types`]
-    pub fn read_with_types<R: Read>(reader: &mut R, types: &Types) -> Result<Self, ParseError> {
+    pub fn read_with_types<R: Read>(reader: &mut R, types: &Types, progress: Option<fn(u32)>) -> Result<Self, ParseError> {
         let mut reader = SeekReader::new(reader);
 
         Context::run_with_types(types, &mut reader, |reader| {
             let header = Header::read(reader)?;
+            if progress.is_some() {
+                progress.unwrap()(reader.stream_position()? as u32);
+            }
+
             let (root, extra) = reader.header(&header, |reader| -> TResult<_> {
-                let root = Root::read(reader)?;
+                let root = Root::read(reader, progress)?;
                 let extra = {
                     let mut buf = vec![];
                     reader.read_to_end(&mut buf)?;

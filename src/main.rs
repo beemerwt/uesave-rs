@@ -91,7 +91,7 @@ pub fn main() -> Result<()> {
                 types.add(path, t);
             }
 
-            let save = Save::read_with_types(&mut input(&action.input)?, &types)?;
+            let save = Save::read_with_types(&mut input(&action.input)?, &types, None)?;
             serde_json::to_writer_pretty(output(&action.output)?, &save)?;
         }
         Action::FromJson(io) => {
@@ -106,7 +106,7 @@ pub fn main() -> Result<()> {
 
             let mut input = std::io::Cursor::new(fs::read(action.path)?);
             let mut output = std::io::Cursor::new(vec![]);
-            Save::read_with_types(&mut input, &types)?.write(&mut output)?;
+            Save::read_with_types(&mut input, &types, None)?.write(&mut output)?;
             let (input, output) = (input.into_inner(), output.into_inner());
             if input != output {
                 if action.debug {
