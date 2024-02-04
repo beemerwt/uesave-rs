@@ -134,7 +134,7 @@ fn write_string_always_trailing<W: Write>(writer: &mut Context<W>, string: &str)
 }
 
 type Properties = indexmap::IndexMap<String, Property>;
-fn read_properties_until_none<R: Read + Seek>(reader: &mut Context<R>, progress: Option<fn(u32)>) -> TResult<Properties> {
+fn read_properties_until_none<R: Read + Seek>(reader: &mut Context<R>, progress: Option<&std::boxed::Box<dyn Fn(u32)>>) -> TResult<Properties> {
     let mut properties = Properties::new();
     while let Some((name, prop)) = read_property(reader)? {
         if progress.is_some() {
@@ -2529,7 +2529,7 @@ pub struct Root {
     pub properties: Properties,
 }
 impl Root {
-    fn read<R: Read + Seek>(reader: &mut Context<R>, progress: Option<fn(u32)>) -> TResult<Self> {
+    fn read<R: Read + Seek>(reader: &mut Context<R>, progress: Option<&std::boxed::Box<dyn Fn(u32)>>) -> TResult<Self> {
         Ok(Self {
             save_game_type: read_string(reader)?,
             properties: read_properties_until_none(reader, progress)?,
@@ -2554,7 +2554,7 @@ impl Save {
         Self::read_with_types(reader, &Types::new(), None)
     }
     /// Reads save from the given reader using the provided [`Types`]
-    pub fn read_with_types<R: Read>(reader: &mut R, types: &Types, progress: Option<fn(u32)>) -> Result<Self, ParseError> {
+    pub fn read_with_types<R: Read>(reader: &mut R, types: &Types, progress: Option<&std::boxed::Box<dyn Fn(u32)>>) -> Result<Self, ParseError> {
         let mut reader = SeekReader::new(reader);
 
         Context::run_with_types(types, &mut reader, |reader| {
